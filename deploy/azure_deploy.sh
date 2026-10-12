@@ -7,7 +7,7 @@
 set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-charlotte-ai}"
-LOCATION="${LOCATION:-canadacentral}"  # this subscription is policy-restricted to: germanywestcentral, francecentral, denmarkeast, canadacentral, swedencentral
+LOCATION="${LOCATION:-swedencentral}"  # this subscription is policy-restricted to: germanywestcentral, francecentral, denmarkeast, canadacentral, swedencentral
 PLAN_NAME="${PLAN_NAME:-charlotte-plan}"
 SKU="${SKU:-B1}"                       # B1 ~$13/mo, no daily CPU cap. F1 is free but capped at 60 CPU-min/day.
 APP_NAME="${APP_NAME:?set APP_NAME to a globally-unique name, e.g. mini-charlotte-ai-yourname}"
