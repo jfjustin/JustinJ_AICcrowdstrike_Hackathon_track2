@@ -9,10 +9,12 @@ benign noise on 10.9.8.8, one raw AMiner-shaped alert) and prints what the
 pipeline did with it: new chains vs. attachments to existing incidents.
 """
 import json
+import os
 import time
 import urllib.request
 
-BASE = "http://127.0.0.1:8713"
+BASE = os.getenv("INGEST_BASE_URL", "http://127.0.0.1:8713")
+INGEST_KEY = os.getenv("INGEST_API_KEY", "")
 now = time.time()
 alerts = []
 
@@ -68,8 +70,10 @@ alerts.append({
 })
 
 body = json.dumps({"scenario": "live-demo", "alerts": alerts}).encode()
-req = urllib.request.Request(
-    BASE + "/api/ingest", data=body, headers={"Content-Type": "application/json"})
+headers = {"Content-Type": "application/json"}
+if INGEST_KEY:
+    headers["X-Ingest-Key"] = INGEST_KEY
+req = urllib.request.Request(BASE + "/api/ingest", data=body, headers=headers)
 resp = json.loads(urllib.request.urlopen(req).read())
 print(json.dumps(resp, indent=2))
 print("\nNow open the queue — the new incident(s) should be at/near the top.")

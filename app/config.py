@@ -39,3 +39,9 @@ KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/v1")
 
 HOST = "127.0.0.1"  # localhost only — never binds to a public interface
 PORT = int(os.getenv("PORT", "8713"))
+
+# Shared-secret gate for POST /api/ingest. Empty (the local default) means
+# the endpoint is open — fine for judging on localhost. Set this before
+# deploying anywhere reachable publicly (e.g. Azure App Service), otherwise
+# /api/ingest is an unauthenticated public write path.
+INGEST_API_KEY = os.getenv("INGEST_API_KEY", "")

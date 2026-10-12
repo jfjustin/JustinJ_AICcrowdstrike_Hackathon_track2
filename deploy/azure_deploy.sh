@@ -46,6 +46,18 @@ az webapp config set \
   --startup-file "gunicorn --bind=0.0.0.0 --timeout 600 wsgi:app" \
   --output table
 
+if [ -n "${INGEST_API_KEY:-}" ]; then
+  echo "== 4b. setting INGEST_API_KEY app setting (gates POST /api/ingest) =="
+  az webapp config appsettings set \
+    --name "$APP_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --settings INGEST_API_KEY="$INGEST_API_KEY" \
+    --output table
+else
+  echo "== 4b. INGEST_API_KEY not set — /api/ingest will be open once deployed =="
+  echo "   set it and rerun, or: az webapp config appsettings set --name $APP_NAME --resource-group $RESOURCE_GROUP --settings INGEST_API_KEY=<secret>"
+fi
+
 echo "== 5. package only git-tracked files (skips datapack_extracted/, runtime/, .git) =="
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 ZIP_PATH="/tmp/mini-charlotte-deploy.zip"

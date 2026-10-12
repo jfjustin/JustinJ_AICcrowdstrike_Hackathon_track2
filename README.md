@@ -65,6 +65,40 @@ over the static pack on every load — `data/` is never mutated. The analyst
 feedback loop applies to live incidents automatically: mark one false positive
 and its detector-mix signature suppresses lookalikes.
 
+**Gating it**: set `INGEST_API_KEY` and every `POST /api/ingest` must include
+a matching `X-Ingest-Key` header, or it's rejected with 401. Empty (the
+local default) means the endpoint is open, which is fine on localhost but
+not once this is reachable publicly:
+
+```bash
+# local, gate on
+INGEST_API_KEY=some-long-random-string python -m app.main
+
+# client side
+curl -X POST http://127.0.0.1:8713/api/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Ingest-Key: some-long-random-string" \
+  -d '{"scenario":"live","alerts":[{"ts":1730000000,"host":"10.1.2.3","detector":"EntropyDetector","message":"..."}]}'
+
+# or with demo_ingest.py
+INGEST_API_KEY=some-long-random-string python demo_ingest.py
+```
+
+`deploy/azure_deploy.sh` picks up `INGEST_API_KEY` from your shell if set and
+pushes it to the App Service as a setting automatically:
+
+```bash
+INGEST_API_KEY=some-long-random-string APP_NAME=mini-charlotte-ai-jjiang8 ./deploy/azure_deploy.sh
+```
+
+If you deployed already without it, set it after the fact and restart:
+
+```bash
+az webapp config appsettings set --name mini-charlotte-ai-jjiang8 \
+  --resource-group rg-charlotte-ai --settings INGEST_API_KEY=some-long-random-string
+az webapp restart --name mini-charlotte-ai-jjiang8 --resource-group rg-charlotte-ai
+```
+
 ## How it works
 
 1. **Queue** (`/api/chains`) — chains sorted by `chain_score`, ground truth hidden unless "eval

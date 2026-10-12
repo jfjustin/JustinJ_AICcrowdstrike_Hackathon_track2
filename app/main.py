@@ -1,13 +1,14 @@
 """Flask app: the incident queue API + static shell for Mini Charlotte AI."""
 from __future__ import annotations
 
+import hmac
 import math
 
 from flask import Flask, jsonify, render_template, request
 
 from app import feedback
 from app import ingest as ingest_mod
-from app.config import BASE_DIR, HOST, PORT
+from app.config import BASE_DIR, HOST, INGEST_API_KEY, PORT
 from app.data import get_chain, load_chains_df
 from app.llm import anthropic_provider, base as llm_base, cache as llm_cache, kimi_provider, ollama_provider, openai_provider
 from app.metrics import compute_metrics
@@ -180,6 +181,11 @@ def create_app() -> Flask:
         appear in the queue immediately, near-duplicate bursts attach to the
         existing chain on the same host.
         """
+        if INGEST_API_KEY:
+            supplied = request.headers.get("X-Ingest-Key", "")
+            if not hmac.compare_digest(supplied, INGEST_API_KEY):
+                return jsonify({"error": "missing or invalid X-Ingest-Key header"}), 401
+
         body = request.get_json(silent=True) or {}
         try:
             result = ingest_mod.ingest_batch(
