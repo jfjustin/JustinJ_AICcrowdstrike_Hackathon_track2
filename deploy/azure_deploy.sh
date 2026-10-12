@@ -7,6 +7,10 @@
 set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-charlotte-ai}"
+# Resource group location is just metadata (not subject to the compute-region
+# policy below) and, once created, can't be changed — must match whatever
+# it already exists as, if it already exists.
+RESOURCE_GROUP_LOCATION="${RESOURCE_GROUP_LOCATION:-eastus}"
 LOCATION="${LOCATION:-swedencentral}"  # this subscription is policy-restricted to: germanywestcentral, francecentral, denmarkeast, canadacentral, swedencentral
 PLAN_NAME="${PLAN_NAME:-charlotte-plan}"
 SKU="${SKU:-B1}"                       # B1 ~$13/mo, no daily CPU cap. F1 is free but capped at 60 CPU-min/day.
@@ -16,7 +20,7 @@ echo "== whoami / subscription =="
 az account show --output table
 
 echo "== 1. resource group =="
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output table
+az group create --name "$RESOURCE_GROUP" --location "$RESOURCE_GROUP_LOCATION" --output table
 
 echo "== 2. Linux App Service plan ($SKU) =="
 az appservice plan create \
