@@ -3,6 +3,11 @@
 chains.jsonl (1,395 rows) and alerts_representatives.jsonl (21,251 rows) are
 small enough to live entirely in pandas DataFrames for the life of the Flask
 process — no database needed at this scale.
+
+Live ingestion (/api/ingest) appends to runtime/live_chains.jsonl and
+runtime/live_alerts.jsonl (gitignored). Those rows are merged over the static
+pack on load: a live row with the same chain_id replaces the static one
+(chain extension), new ids are appended. Static data/ files are never mutated.
 """
 from __future__ import annotations
 
@@ -13,7 +18,14 @@ from functools import lru_cache
 
 import pandas as pd
 
-from app.config import ALERTS_PATH, CHAINS_PATH, EVALUATION_PATH, LABELS_PATH
+from app.config import (
+    ALERTS_PATH,
+    CHAINS_PATH,
+    EVALUATION_PATH,
+    LABELS_PATH,
+    LIVE_ALERTS_PATH,
+    LIVE_CHAINS_PATH,
+)
 
 
 def _read_jsonl(path) -> list[dict]:
@@ -26,9 +38,28 @@ def _read_jsonl(path) -> list[dict]:
     return rows
 
 
+def _read_live_rows(path) -> list[dict]:
+    """Live rows, last write wins per chain_id/alert_id."""
+    if not path.exists():
+        return []
+    deduped: dict[str, dict] = {}
+    for row in _read_jsonl(path):
+        key = row.get("chain_id") or row.get("alert_id")
+        if key:
+            deduped[key] = row
+    return list(deduped.values())
+
+
+def _merge_live(static_rows: list[dict], live_rows: list[dict], key: str) -> list[dict]:
+    if not live_rows:
+        return static_rows
+    live_ids = {r[key] for r in live_rows}
+    return [r for r in static_rows if r.get(key) not in live_ids] + live_rows
+
+
 @lru_cache(maxsize=1)
 def load_chains_df() -> pd.DataFrame:
-    rows = _read_jsonl(CHAINS_PATH)
+    rows = _merge_live(_read_jsonl(CHAINS_PATH), _read_live_rows(LIVE_CHAINS_PATH), "chain_id")
     df = pd.DataFrame(rows)
     df = df.set_index("chain_id", drop=False)
     return df
@@ -36,10 +67,16 @@ def load_chains_df() -> pd.DataFrame:
 
 @lru_cache(maxsize=1)
 def load_alerts_df() -> pd.DataFrame:
-    rows = _read_jsonl(ALERTS_PATH)
+    rows = _merge_live(_read_jsonl(ALERTS_PATH), _read_live_rows(LIVE_ALERTS_PATH), "alert_id")
     df = pd.DataFrame(rows)
     df = df.set_index("alert_id", drop=False)
     return df
+
+
+def refresh_data() -> None:
+    """Call after ingestion so the next request sees the merged live layer."""
+    load_chains_df.cache_clear()
+    load_alerts_df.cache_clear()
 
 
 @lru_cache(maxsize=1)

@@ -46,6 +46,25 @@ matching key into the box that appears. Each key is kept in that browser tab's
 `sessionStorage` only (one slot per provider), sent once per explain request, and never written
 to disk, logs, or the server's environment.
 
+## Live ingest
+
+`POST /api/ingest` runs the real detection pipeline in-process — normalize →
+severity score → 15-min dedup → correlate — on whatever you post. New incidents
+appear in the queue immediately; alerts landing within 30 min of an existing
+chain on the same host extend that chain instead of starting a new one.
+
+```bash
+python -m app.main        # terminal 1
+python demo_ingest.py     # terminal 2 — fires a synthetic attack burst
+```
+
+Accepts raw AMiner JSON objects or simplified
+`{"ts", "host", "detector", "detector_name", "log_source", "message"}` dicts.
+Ingested rows persist under `runtime/live_*.jsonl` (gitignored) and are merged
+over the static pack on every load — `data/` is never mutated. The analyst
+feedback loop applies to live incidents automatically: mark one false positive
+and its detector-mix signature suppresses lookalikes.
+
 ## How it works
 
 1. **Queue** (`/api/chains`) — chains sorted by `chain_score`, ground truth hidden unless "eval

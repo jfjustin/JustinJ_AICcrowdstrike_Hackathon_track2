@@ -6,6 +6,7 @@ import math
 from flask import Flask, jsonify, render_template, request
 
 from app import feedback
+from app import ingest as ingest_mod
 from app.config import BASE_DIR, HOST, PORT
 from app.data import get_chain, load_chains_df
 from app.llm import anthropic_provider, base as llm_base, cache as llm_cache, kimi_provider, ollama_provider, openai_provider
@@ -168,6 +169,25 @@ def create_app() -> Flask:
     def metrics():
         k = request.args.get("k", default=20, type=int)
         return jsonify(_clean_nan(compute_metrics(k=k)))
+
+    @app.post("/api/ingest")
+    def ingest():
+        """Live ingestion: POST {"scenario": "live", "alerts": [...]}.
+
+        Each alert is a raw AMiner JSON object or a simplified
+        {"ts", "host", "detector", "detector_name", "log_source", "message"} dict.
+        Runs normalize -> score -> dedup -> correlate in-process; new incidents
+        appear in the queue immediately, near-duplicate bursts attach to the
+        existing chain on the same host.
+        """
+        body = request.get_json(silent=True) or {}
+        try:
+            result = ingest_mod.ingest_batch(
+                body.get("alerts", []), scenario=body.get("scenario", "live")
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(_clean_nan(result))
 
     @app.get("/api/ollama/status")
     def ollama_status():

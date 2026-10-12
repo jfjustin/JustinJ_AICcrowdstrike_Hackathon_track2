@@ -26,6 +26,8 @@ EVALUATION_PATH = DATA_DIR / "evaluation.json"
 
 FEEDBACK_STORE_PATH = RUNTIME_DIR / "feedback_store.json"
 LLM_CACHE_PATH = RUNTIME_DIR / "llm_cache.json"
+LIVE_CHAINS_PATH = RUNTIME_DIR / "live_chains.jsonl"   # ingested incidents (gitignored)
+LIVE_ALERTS_PATH = RUNTIME_DIR / "live_alerts.jsonl"   # ingested alerts (gitignored)
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:8b")
