@@ -1,0 +1,29 @@
+"""Cloud explain path: Kimi K2 (Moonshot AI) with a request-scoped key.
+
+Moonshot's API is OpenAI-compatible, so this reuses the openai SDK pointed
+at Moonshot's base URL. Same request-scoped-key handling as the other cloud
+providers — never persisted server-side.
+"""
+from __future__ import annotations
+
+from openai import OpenAI
+
+from app.config import KIMI_BASE_URL, KIMI_MODEL
+from app.llm.base import build_prompt, parse_response
+
+NAME = "kimi"
+
+
+def explain(chain: dict, api_key: str, model: str = KIMI_MODEL, base_url: str = KIMI_BASE_URL) -> dict:
+    if not api_key:
+        raise ValueError("Kimi provider requires an api_key")
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    prompt = build_prompt(chain)
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = response.choices[0].message.content or ""
+    return parse_response(text)

@@ -29,7 +29,11 @@ LLM_CACHE_PATH = RUNTIME_DIR / "llm_cache.json"
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:8b")
+OLLAMA_MODEL_ALT = os.getenv("OLLAMA_MODEL_ALT", "gpt-oss:20b")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+KIMI_MODEL = os.getenv("KIMI_MODEL", "k3-256k")
+KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/v1")
 
 HOST = "127.0.0.1"  # localhost only — never binds to a public interface
 PORT = int(os.getenv("PORT", "8713"))

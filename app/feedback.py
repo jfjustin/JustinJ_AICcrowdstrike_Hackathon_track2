@@ -1,9 +1,10 @@
 """Analyst feedback loop: verdicts on chains + derived suppression rules.
 
-A single JSON file is enough for a single-process demo. A false-positive
-verdict registers a suppression signature (host + detector mix) so future
-chains matching it are filtered out of the main queue automatically — the
-"feedback loop" the data pack's README asks for.
+A single JSON file is enough for a single-process demo. Suppression is
+derived live from each chain's *latest* verdict, not stored as separate
+mutable state — one source of truth, so flipping a verdict back to TP/review
+automatically clears the suppression on the next read instead of needing a
+separate "unsuppress" write to stay in sync.
 """
 from __future__ import annotations
 
@@ -38,9 +39,11 @@ def normalize_verdict(verdict: str) -> str:
 
 def _load() -> dict:
     if not FEEDBACK_STORE_PATH.exists():
-        return {"verdicts": [], "suppressed_signatures": {}}
+        return {"verdicts": []}
     with open(FEEDBACK_STORE_PATH) as f:
-        return json.load(f)
+        store = json.load(f)
+    store.setdefault("verdicts", [])
+    return store
 
 
 def _save(store: dict) -> None:
@@ -50,38 +53,26 @@ def _save(store: dict) -> None:
     tmp.replace(FEEDBACK_STORE_PATH)
 
 
+def _latest_entries(store: dict) -> dict[str, dict]:
+    """chain_id -> its most recent verdict entry (later entries win)."""
+    latest: dict[str, dict] = {}
+    for entry in store["verdicts"]:
+        latest[entry["chain_id"]] = entry
+    return latest
+
+
 def record_verdict(chain_id: str, verdict: str, note: str = "") -> dict:
     """Accepts 'tp'/'fp'/'review' or 'TRUE_POSITIVE'/'FALSE_POSITIVE'/'NEEDS_REVIEW'."""
     chain = get_chain(chain_id)
     if chain is None:
         raise ValueError(f"unknown chain_id {chain_id!r}")
-    canonical = normalize_verdict(verdict)
+    normalize_verdict(verdict)  # validate, raises on unknown values
 
     with _lock:
         store = _load()
         store["verdicts"].append(
-            {
-                "chain_id": chain_id,
-                "verdict": verdict,
-                "note": note,
-                "ts": time.time(),
-            }
+            {"chain_id": chain_id, "verdict": verdict, "note": note, "ts": time.time()}
         )
-        if canonical == "fp":
-            sig = chain_signature(chain)
-            store["suppressed_signatures"][sig] = {
-                "reason": f"analyst marked chain {chain_id} as false positive",
-                "source_chain_id": chain_id,
-                "ts": time.time(),
-            }
-        _save(store)
-        return store
-
-
-def unsuppress(signature: str) -> dict:
-    with _lock:
-        store = _load()
-        store["suppressed_signatures"].pop(signature, None)
         _save(store)
         return store
 
@@ -92,15 +83,28 @@ def get_store() -> dict:
 
 
 def suppressed_signatures() -> dict:
-    return get_store()["suppressed_signatures"]
+    """signature -> {reason, source_chain_id, ts}, derived live from whichever
+    chains currently have a false-positive verdict as their latest entry."""
+    store = get_store()
+    sigs: dict[str, dict] = {}
+    for chain_id, entry in _latest_entries(store).items():
+        if normalize_verdict(entry["verdict"]) != "fp":
+            continue
+        chain = get_chain(chain_id)
+        if chain is None:
+            continue
+        sig = chain_signature(chain)
+        sigs[sig] = {
+            "reason": f"analyst marked chain {chain_id} as false positive",
+            "source_chain_id": chain_id,
+            "ts": entry["ts"],
+        }
+    return sigs
 
 
 def verdict_for(chain_id: str) -> dict | None:
     store = get_store()
-    for v in reversed(store["verdicts"]):
-        if v["chain_id"] == chain_id:
-            return v
-    return None
+    return _latest_entries(store).get(chain_id)
 
 
 def is_suppressed(chain: dict, signatures: dict | None = None) -> str | None:
@@ -108,6 +112,34 @@ def is_suppressed(chain: dict, signatures: dict | None = None) -> str | None:
     sigs = signatures if signatures is not None else suppressed_signatures()
     sig = chain_signature(chain)
     return sig if sig in sigs else None
+
+
+def unsuppress(signature: str) -> dict:
+    """Clears a suppression by overriding every chain currently driving it
+    (latest verdict FP, matching signature) with a 'review' verdict."""
+    with _lock:
+        store = _load()
+        for chain_id, entry in _latest_entries(store).items():
+            if normalize_verdict(entry["verdict"]) != "fp":
+                continue
+            chain = get_chain(chain_id)
+            if chain is None or chain_signature(chain) != signature:
+                continue
+            store["verdicts"].append(
+                {
+                    "chain_id": chain_id,
+                    "verdict": "review",
+                    "note": "auto-cleared via unsuppress",
+                    "ts": time.time(),
+                }
+            )
+        _save(store)
+        return store
+
+
+def reset_all() -> None:
+    with _lock:
+        _save({"verdicts": []})
 
 
 def split_suppressed(df):

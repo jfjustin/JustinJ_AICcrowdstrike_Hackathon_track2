@@ -7,6 +7,14 @@ const state = {
 const el = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+const PROVIDERS = {
+  "ollama-deepseek": { label: "Private — Ollama (deepseek-r1:8b)", cloud: false, provider: "ollama", model: "deepseek-r1:8b" },
+  "ollama-gptoss": { label: "Private — Ollama (gpt-oss:20b)", cloud: false, provider: "ollama", model: "gpt-oss:20b" },
+  anthropic: { label: "Cloud — Anthropic API", cloud: true, provider: "anthropic", placeholder: "sk-ant-... (used once, kept only in this tab)" },
+  openai: { label: "Cloud — OpenAI API", cloud: true, provider: "openai", placeholder: "sk-... (used once, kept only in this tab)" },
+  kimi: { label: "Cloud — Kimi K3 (Moonshot)", cloud: true, provider: "kimi", placeholder: "Moonshot API key (used once, kept only in this tab)" },
+};
+
 // ---------- tabs ----------
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -138,10 +146,9 @@ function renderDetail(chain) {
 
     <div class="provider-row">
       <select id="provider-select">
-        <option value="ollama">Private — Ollama (deepseek-r1:8b)</option>
-        <option value="anthropic">Cloud — Anthropic API</option>
+        ${Object.entries(PROVIDERS).map(([value, p]) => `<option value="${value}">${esc(p.label)}</option>`).join("")}
       </select>
-      <input id="api-key-input" type="password" placeholder="sk-ant-... (used once, kept only in this tab)" style="display:none" />
+      <input id="api-key-input" type="password" placeholder="" style="display:none" />
       <button class="explain-btn" id="explain-btn">Explain</button>
     </div>
     <div id="explain-status" class="muted"></div>
@@ -159,12 +166,15 @@ function renderDetail(chain) {
   `;
 
   const providerSelect = el("#provider-select");
-  providerSelect.addEventListener("change", () => {
-    el("#api-key-input").style.display = providerSelect.value === "anthropic" ? "block" : "none";
-  });
-
-  const savedKey = sessionStorage.getItem("anthropic_api_key");
-  if (savedKey) el("#api-key-input").value = savedKey;
+  const syncKeyInput = () => {
+    const meta = PROVIDERS[providerSelect.value];
+    const keyInput = el("#api-key-input");
+    keyInput.style.display = meta.cloud ? "block" : "none";
+    keyInput.placeholder = meta.placeholder || "";
+    keyInput.value = meta.cloud ? sessionStorage.getItem(`${providerSelect.value}_api_key`) || "" : "";
+  };
+  providerSelect.addEventListener("change", syncKeyInput);
+  syncKeyInput();
 
   el("#explain-btn").addEventListener("click", () => explainChain(chain.chain_id));
 
@@ -183,18 +193,20 @@ function renderDetail(chain) {
 }
 
 async function explainChain(chainId) {
-  const provider = el("#provider-select").value;
+  const providerKey = el("#provider-select").value;
+  const meta = PROVIDERS[providerKey];
   const statusEl = el("#explain-status");
   const resultEl = el("#explain-result");
-  const body = { provider };
+  const body = { provider: meta.provider, cache_key: providerKey };
+  if (meta.model) body.model = meta.model;
 
-  if (provider === "anthropic") {
+  if (meta.cloud) {
     const key = el("#api-key-input").value.trim();
     if (!key) {
-      statusEl.textContent = "Paste an Anthropic API key first.";
+      statusEl.textContent = `Paste a ${meta.label.split("— ")[1]} key first.`;
       return;
     }
-    sessionStorage.setItem("anthropic_api_key", key);
+    sessionStorage.setItem(`${providerKey}_api_key`, key);
     body.api_key = key;
   }
 
@@ -281,6 +293,13 @@ async function loadMetrics() {
 }
 
 el("#refresh-btn").addEventListener("click", loadChains);
+el("#reset-btn").addEventListener("click", async () => {
+  if (!confirm("Clear all analyst verdicts and cached explanations?")) return;
+  await fetch("/api/reset", { method: "POST" });
+  state.selectedId = null;
+  el("#detail-panel").innerHTML = '<p class="muted">Select an incident from the queue to see the correlated alerts and generate an explanation.</p>';
+  await loadChains();
+});
 el("#scenario-filter").addEventListener("change", loadChains);
 el("#show-suppressed").addEventListener("change", loadChains);
 el("#eval-mode").addEventListener("change", loadChains);

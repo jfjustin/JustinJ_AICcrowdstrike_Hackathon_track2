@@ -29,7 +29,8 @@ for the full original pipeline.
 pip install -r requirements.txt
 
 # optional, for the local explain provider:
-ollama pull deepseek-r1:8b   # skip if already pulled
+ollama pull deepseek-r1:8b   # local default; skip if already pulled
+ollama pull gpt-oss:20b       # optional second local/free model (~13GB)
 
 python -m app.main
 # open http://127.0.0.1:8713
@@ -39,25 +40,30 @@ No API key or `.env` is required to run the full demo — the Ollama path works 
 and if Ollama isn't running either, the app falls back to a deterministic, label-free
 explanation template so the UI never shows an error state.
 
-To use the cloud explain path: in the incident detail panel, switch the provider dropdown to
-"Cloud — Anthropic API" and paste a key into the box that appears. The key is kept in that
-browser tab's `sessionStorage` only, sent once per explain request, and never written to disk,
-logs, or the server's environment.
+To use a cloud explain path: in the incident detail panel, switch the provider dropdown to
+"Cloud — Anthropic API", "Cloud — OpenAI API", or "Cloud — Kimi K3 (Moonshot)" and paste the
+matching key into the box that appears. Each key is kept in that browser tab's
+`sessionStorage` only (one slot per provider), sent once per explain request, and never written
+to disk, logs, or the server's environment.
 
 ## How it works
 
 1. **Queue** (`/api/chains`) — chains sorted by `chain_score`, ground truth hidden unless "eval
    mode" is checked.
 2. **Explain** (`/api/chains/<id>/explain`) — builds a SOC-analyst prompt from the chain's top-8
-   `context_alerts`, asks the selected provider (local Ollama `deepseek-r1:8b` or cloud
-   Anthropic) for a structured JSON verdict: `summary`, `confidence` (high/medium/low + why),
+   `context_alerts`, asks the selected provider (local Ollama `deepseek-r1:8b` or `gpt-oss:20b`,
+   or cloud Anthropic / OpenAI / Kimi K3) for a structured JSON verdict: `summary`, `confidence` (high/medium/low + why),
    `false_positive_hypotheses`, `next_steps`, and a `verdict` (TRUE_POSITIVE / FALSE_POSITIVE /
    NEEDS_REVIEW). Responses are cached to `runtime/llm_cache.json` keyed by chain + provider.
 3. **Feedback loop** (`/api/chains/<id>/verdict`) — an analyst confirming or marking a chain false
-   positive writes to `runtime/feedback_store.json`. A false-positive verdict registers a
-   suppression signature (`host` + detector mix); any future chain matching it is auto-filtered
-   from the main queue (visible under "show suppressed", with the reason and an unsuppress
-   action).
+   positive writes to `runtime/feedback_store.json`. Suppression is derived live from each
+   chain's *latest* verdict (no separate mutable suppression store): any chain whose most recent
+   verdict is false-positive contributes its `host` + detector-mix signature to the suppressed
+   set, and any other chain matching that signature is auto-filtered from the main queue
+   (visible under "show suppressed", with the reason). Flipping the verdict back, or hitting
+   "unsuppress" in the detail panel, clears it immediately — there's nothing else to keep in
+   sync. "Reset demo" in the toolbar wipes all verdicts and the explanation cache for a clean
+   re-run.
 4. **Metrics** (`/api/metrics`) — recomputes precision@k and volume reduction live, before vs.
    after the suppressions currently in effect, against `labels.csv` — the actual money slide,
    not a fixed number.
@@ -84,8 +90,10 @@ app/
   metrics.py           live precision/volume recomputation
   llm/
     base.py            shared prompt + JSON response parsing + offline fallback
-    ollama_provider.py local explain (deepseek-r1:8b via Ollama)
-    anthropic_provider.py  cloud explain (request-scoped API key)
+    ollama_provider.py local explain (deepseek-r1:8b or gpt-oss:20b via Ollama)
+    anthropic_provider.py  cloud explain: Anthropic (request-scoped API key)
+    openai_provider.py     cloud explain: OpenAI (request-scoped API key)
+    kimi_provider.py       cloud explain: Kimi K3 / Moonshot (request-scoped API key)
     cache.py           disk cache keyed by (chain_id, provider)
 templates/index.html   single-page shell (Queue / Metrics / About)
 static/css, static/js  vanilla CSS/JS, no frontend framework

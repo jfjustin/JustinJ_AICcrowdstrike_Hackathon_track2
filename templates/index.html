@@ -32,6 +32,7 @@
             <label class="checkbox"><input type="checkbox" id="show-suppressed" /> show suppressed</label>
             <label class="checkbox"><input type="checkbox" id="eval-mode" /> eval mode (ground truth)</label>
             <button id="refresh-btn">Refresh</button>
+            <button id="reset-btn" title="Clear all analyst verdicts and cached explanations">Reset demo</button>
             <span id="queue-count" class="muted"></span>
           </div>
           <table class="chain-table">
@@ -82,10 +83,20 @@
             explanation and analyst verdict are the arbiter for those, same as a real SOC.</li>
         </ul>
         <h2>Explain providers</h2>
-        <p><strong>Private/local</strong> — Ollama running <code>deepseek-r1:8b</code> on this
-          machine, no data leaves the box. <strong>Cloud</strong> — Anthropic API; paste a key
-          into the chatbox in the detail panel, it's used for one request and kept only in this
-          browser tab's session storage.</p>
+        <p><strong>Private/local</strong> (no key, no data leaves the box) — Ollama running
+          <code>deepseek-r1:8b</code> or <code>gpt-oss:20b</code> on this machine.
+          <strong>Cloud</strong> — Anthropic, OpenAI, or Kimi K3 (Moonshot); paste the matching
+          key into the chatbox in the detail panel, it's used for one request and kept only in
+          that browser tab's session storage.</p>
+        <h2>How to demo this</h2>
+        <ol>
+          <li>Open the top-ranked chain in the queue → "Explain" → read the LLM's summary,
+            confidence, and false-positive hypotheses.</li>
+          <li>Open a low-score, single-detector chain near the bottom → mark it
+            "Mark false positive" → watch the Queue count and the Metrics tab's
+            precision@k move live.</li>
+          <li>Hit "Reset demo" to clear verdicts and cached explanations before the next run.</li>
+        </ol>
       </div>
     </section>
   </main>

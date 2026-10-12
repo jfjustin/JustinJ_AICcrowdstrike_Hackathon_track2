@@ -43,3 +43,8 @@ def set(chain_id: str, provider: str, response: dict) -> None:
         cache = _load()
         cache[_key(chain_id, provider)] = {**response, "cached_at": time.time(), "provider": provider}
         _save(cache)
+
+
+def clear() -> None:
+    with _lock:
+        _save({})

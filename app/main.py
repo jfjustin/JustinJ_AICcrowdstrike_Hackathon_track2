@@ -8,7 +8,7 @@ from flask import Flask, jsonify, render_template, request
 from app import feedback
 from app.config import BASE_DIR, HOST, PORT
 from app.data import get_chain, load_chains_df
-from app.llm import anthropic_provider, base as llm_base, cache as llm_cache, ollama_provider
+from app.llm import anthropic_provider, base as llm_base, cache as llm_cache, kimi_provider, ollama_provider, openai_provider
 from app.metrics import compute_metrics
 
 GROUND_TRUTH_FIELDS = {"likely_true_positive"}
@@ -94,9 +94,9 @@ def create_app() -> Flask:
         sig = feedback.is_suppressed(chain)
         payload = _chain_to_payload(chain, eval_mode=eval_mode, suppressed=bool(sig), signature=sig)
         payload["cached_explanations"] = {
-            provider: llm_cache.get(chain_id, provider)
-            for provider in ("ollama", "anthropic")
-            if llm_cache.get(chain_id, provider)
+            key: llm_cache.get(chain_id, key)
+            for key in ("ollama-deepseek", "ollama-gptoss", "anthropic", "openai", "kimi")
+            if llm_cache.get(chain_id, key)
         }
         return jsonify(payload)
 
@@ -108,29 +108,37 @@ def create_app() -> Flask:
 
         body = request.get_json(silent=True) or {}
         provider = body.get("provider", "ollama")
+        model = body.get("model")
+        cache_key = body.get("cache_key", provider)
         force = bool(body.get("force"))
 
         if not force:
-            cached = llm_cache.get(chain_id, provider)
+            cached = llm_cache.get(chain_id, cache_key)
             if cached:
                 return jsonify(cached)
 
-        used_provider = provider
+        used_key = cache_key
         try:
             if provider == "ollama":
-                result = ollama_provider.explain(chain)
+                result = ollama_provider.explain(chain, model=model) if model else ollama_provider.explain(chain)
             elif provider == "anthropic":
                 api_key = body.get("api_key", "")
                 result = anthropic_provider.explain(chain, api_key=api_key)
+            elif provider == "openai":
+                api_key = body.get("api_key", "")
+                result = openai_provider.explain(chain, api_key=api_key)
+            elif provider == "kimi":
+                api_key = body.get("api_key", "")
+                result = kimi_provider.explain(chain, api_key=api_key)
             else:
                 return jsonify({"error": f"unknown provider {provider!r}"}), 400
         except Exception as exc:
             result = llm_base.fallback_explanation(chain)
             result["provider_error"] = str(exc)
-            used_provider = "fallback"
+            used_key = "fallback"
 
-        llm_cache.set(chain_id, used_provider, result)
-        result = {**result, "provider": used_provider}
+        llm_cache.set(chain_id, used_key, result)
+        result = {**result, "provider": used_key}
         return jsonify(result)
 
     @app.post("/api/chains/<chain_id>/verdict")
@@ -165,6 +173,12 @@ def create_app() -> Flask:
     def ollama_status():
         reachable, models = ollama_provider.is_reachable()
         return jsonify({"reachable": reachable, "models": models})
+
+    @app.post("/api/reset")
+    def reset_demo():
+        feedback.reset_all()
+        llm_cache.clear()
+        return jsonify({"ok": True})
 
     return app
 
