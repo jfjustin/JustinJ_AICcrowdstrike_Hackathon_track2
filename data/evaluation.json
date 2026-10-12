@@ -1,0 +1,90 @@
+{
+  "fox": {
+    "alerts_raw": 10581,
+    "alerts_after_dedup": 4583,
+    "tp_in_raw": 9413,
+    "precision_raw_pct": 88.96,
+    "tp_after_dedup": 3895,
+    "precision_after_dedup_pct": 84.99,
+    "chains": 182,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 9
+  },
+  "harrison": {
+    "alerts_raw": 10194,
+    "alerts_after_dedup": 4438,
+    "tp_in_raw": 9512,
+    "precision_raw_pct": 93.31,
+    "tp_after_dedup": 3912,
+    "precision_after_dedup_pct": 88.15,
+    "chains": 206,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 9
+  },
+  "russellmitchell": {
+    "alerts_raw": 4056,
+    "alerts_after_dedup": 709,
+    "tp_in_raw": 3478,
+    "precision_raw_pct": 85.75,
+    "tp_after_dedup": 205,
+    "precision_after_dedup_pct": 28.91,
+    "chains": 121,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 8
+  },
+  "santos": {
+    "alerts_raw": 4266,
+    "alerts_after_dedup": 702,
+    "tp_in_raw": 3435,
+    "precision_raw_pct": 80.52,
+    "tp_after_dedup": 134,
+    "precision_after_dedup_pct": 19.09,
+    "chains": 148,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 9
+  },
+  "shaw": {
+    "alerts_raw": 2243,
+    "alerts_after_dedup": 657,
+    "tp_in_raw": 969,
+    "precision_raw_pct": 43.2,
+    "tp_after_dedup": 111,
+    "precision_after_dedup_pct": 16.89,
+    "chains": 194,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 9
+  },
+  "wardbeck": {
+    "alerts_raw": 3053,
+    "alerts_after_dedup": 917,
+    "tp_in_raw": 971,
+    "precision_raw_pct": 31.8,
+    "tp_after_dedup": 151,
+    "precision_after_dedup_pct": 16.47,
+    "chains": 219,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 8
+  },
+  "wheeler": {
+    "alerts_raw": 12222,
+    "alerts_after_dedup": 4652,
+    "tp_in_raw": 11353,
+    "precision_raw_pct": 92.89,
+    "tp_after_dedup": 3936,
+    "precision_after_dedup_pct": 84.61,
+    "chains": 121,
+    "attack_steps": 9,
+    "attack_steps_covered_by_chains": 9
+  },
+  "wilson": {
+    "alerts_raw": 8943,
+    "alerts_after_dedup": 4593,
+    "tp_in_raw": 7926,
+    "precision_raw_pct": 88.63,
+    "tp_after_dedup": 3937,
+    "precision_after_dedup_pct": 85.72,
+    "chains": 204,
+    "attack_steps": 10,
+    "attack_steps_covered_by_chains": 10
+  }
+}

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+runtime/
+.DS_Store
+datapack_extracted/
+track2-datapack.zip

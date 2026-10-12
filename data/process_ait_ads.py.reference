@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""
+Process AIT Alert Data Set (AMiner) into a normalized, scored, correlated form
+for the hackathon Track 2 build ("mini Charlotte AI").
+
+Input : /tmp/ait_ads/aminer/*_aminer.json  (one JSON alert per line)
+        /tmp/ait_ads/labels.csv           (ground-truth attack windows)
+Output: alerts_normalized.jsonl  - one compact alert per line, scored & ranked
+        chains.jsonl             - correlated alert chains w/ LLM-ready context
+        evaluation.json          - baseline precision/recall-style metrics
+
+Scoring is fully deterministic and label-free (no ground truth leaks into scores).
+"""
+import json, csv, glob, os, hashlib, math
+from datetime import datetime, timezone
+from collections import defaultdict
+
+IN_DIR  = "/tmp/ait_ads/aminer"
+LABELS  = "/tmp/ait_ads/labels.csv"
+OUT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ---------- severity model (label-free, from detector semantics) ----------
+BASE_SEV = {
+    "EntropyDetector": 90,                  # high-entropy strings: exfil / encoded payloads
+    "EventCountClusterDetector": 70,       # unusual event frequencies: scans, bursts
+    "EventFrequencyDetector": 70,
+    "NewMatchPathValueComboDetector": 50,  # unseen param combos: webshell-ish audit events
+    "NewMatchPathDetector": 40,            # unseen event type
+    "ValueRangeDetector": 35,              # metric out of range (often infra noise)
+    "MatchValueAverageChangeDetector": 35,
+    "NewMatchPathValueDetector": 30,       # unseen value (very noisy on web logs)
+    "CharsetDetector": 25,                 # unseen chars (noisy)
+}
+
+def dampeners(det, source, raw, values, training):
+    mult, why = 1.0, []
+    if training:
+        mult *= 0.5; why.append("training_mode")
+    if "system.cpu.log" in source:
+        mult *= 0.4; why.append("infra_metric_noise")
+    if "audit" in source and "/usr/sbin/cron" in raw:
+        mult *= 0.4; why.append("cron_noise")
+    if det == "NewMatchPathValueDetector" and "intranet-access.log" in source:
+        # status codes / IPs seen tens of thousands of times -> mostly benign volume,
+        # but attack scans (wpscan/dirb) share the pattern, so dampen only mildly
+        v = "".join(values or [])
+        if v and all(c.isdigit() or c in ".' " for c in v) and len(v) < 24:
+            mult *= 0.5; why.append("benign_web_value")
+    return mult, why
+
+def signature(det, host, source, values, raw):
+    key = "|".join([det, host, source,
+                    (str(values)[:60] if values else raw[:60])])
+    return hashlib.sha1(key.encode()).hexdigest()[:12]
+
+def clean_name(n):
+    return (n or "").replace("AMiner: ", "").rstrip(".")
+
+# ---------- load labels ----------
+labels = defaultdict(list)   # scenario -> [(step, start, end)]
+with open(LABELS) as f:
+    for row in csv.DictReader(f):
+        labels[row["scenario"]].append((row["attack"], float(row["start"]), float(row["end"])))
+
+def label_hits(scenario, ts):
+    return [step for step, s, e in labels[scenario] if s <= ts <= e]
+
+# ---------- parse & normalize ----------
+alerts = []
+for path in sorted(glob.glob(os.path.join(IN_DIR, "*_aminer.json"))):
+    scenario = os.path.basename(path).replace("_aminer.json", "")
+    with open(path) as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if not line:
+                continue
+            a = json.loads(line)
+            ac, ld = a.get("AnalysisComponent", {}), a.get("LogData", {})
+            det = ac.get("AnalysisComponentType", "unknown")
+            ts = float(ld.get("DetectionTimestamp", ld.get("Timestamps", [0]))[0])
+            host = a.get("AMiner", {}).get("ID", "unknown")
+            source = (ld.get("LogResources") or ["unknown"])[0]
+            raw = (ld.get("RawLogData") or [""])[0][:200]
+            values = ac.get("AffectedLogAtomValues")
+            training = bool(ac.get("TrainingMode"))
+            mult, why = dampeners(det, source, raw, values, training)
+            score = round(BASE_SEV.get(det, 20) * mult, 1)
+            steps = label_hits(scenario, ts)
+            alerts.append({
+                "alert_id": f"{scenario}:{i}",
+                "scenario": scenario,
+                "ts": ts,
+                "ts_iso": datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "host": host,
+                "log_source": source,
+                "detector": det,
+                "detector_name": clean_name(ac.get("AnalysisComponentName")),
+                "severity": score,
+                "message": f"{clean_name(ac.get('AnalysisComponentName'))} on {host} [{os.path.basename(source)}]: {raw[:120]}",
+                "training_mode": training,
+                "dampened": why,
+                "sig": signature(det, host, source, values, raw),
+                "in_attack_window": bool(steps),
+                "attack_steps": steps,
+            })
+
+# ---------- dedup: collapse repeats of same signature within 15-min windows ----------
+alerts.sort(key=lambda x: (x["scenario"], x["host"], x["sig"], x["ts"]))
+WIN = 900
+for a in alerts:
+    a["dup_of"] = None
+    a["dup_count"] = 1
+last = {}
+for a in alerts:
+    k = (a["scenario"], a["host"], a["sig"])
+    prev = last.get(k)
+    if prev and a["ts"] - prev["ts"] <= WIN:
+        a["dup_of"] = prev["alert_id"]
+        prev["dup_count"] += 1
+    else:
+        last[k] = a
+reps = [a for a in alerts if a["dup_of"] is None]
+
+# rank representatives per scenario by severity
+for a in reps:
+    pass
+by_scen = defaultdict(list)
+for a in reps:
+    by_scen[a["scenario"]].append(a)
+for s, lst in by_scen.items():
+    lst.sort(key=lambda x: (-x["severity"], x["ts"]))
+    for r, a in enumerate(lst, 1):
+        a["rank"] = r
+
+# ---------- correlate into chains: per (scenario, host), split on 30-min gaps ----------
+GAP = 1800
+chains = []
+cid = 0
+grp = defaultdict(list)
+for a in reps:
+    grp[(a["scenario"], a["host"])].append(a)
+for (scenario, host), lst in sorted(grp.items()):
+    lst.sort(key=lambda x: x["ts"])
+    cur = [lst[0]]
+    for a in lst[1:]:
+        if a["ts"] - cur[-1]["ts"] > GAP:
+            chains.append((scenario, host, cur)); cur = [a]
+        else:
+            cur.append(a)
+    chains.append((scenario, host, cur))
+
+chain_rows = []
+for scenario, host, members in chains:
+    cid += 1
+    members.sort(key=lambda x: (-x["severity"], x["ts"]))
+    dets = defaultdict(int)
+    for m in members:
+        dets[m["detector"]] += 1
+    steps = sorted({s for m in members for s in m["attack_steps"]})
+    top = members[:8]
+    max_sev = max(m["severity"] for m in members)
+    # incident ranking: severity of the worst member, boosted by burst volume
+    # (a 3,804-alert scan burst outranks a lone noisy DNS query) 
+    chain_score = round(max_sev * (1 + 0.5 * math.log10(len(members))), 1)
+    chain_rows.append({
+        "chain_id": f"chain-{cid:04d}",
+        "scenario": scenario,
+        "host": host,
+        "start_iso": members[-1]["ts_iso"] if False else min(m["ts_iso"] for m in members),
+        "end_iso": max(m["ts_iso"] for m in members),
+        "alert_count": len(members),
+        "max_severity": max_sev,
+        "chain_score": chain_score,
+        "detectors": dict(dets),
+        "attack_steps_covered": steps,
+        "likely_true_positive": bool(steps),
+        # LLM-ready context: top representative alerts, highest severity first
+        "context_alerts": [
+            {"ts_iso": m["ts_iso"], "severity": m["severity"],
+             "detector": m["detector"], "message": m["message"]}
+            for m in top
+        ],
+        "member_ids": [m["alert_id"] for m in members],
+    })
+    for m in members:
+        m["chain_id"] = f"chain-{cid:04d}"
+
+# ---------- evaluation (label-based, for the demo's money slide) ----------
+evaluation = {}
+for scenario in sorted(by_scen):
+    rep = by_scen[scenario]
+    tp_raw = sum(1 for a in alerts if a["scenario"] == scenario and a["in_attack_window"])
+    n_raw = sum(1 for a in alerts if a["scenario"] == scenario)
+    tp_rep = sum(1 for a in rep if a["in_attack_window"])
+    steps_total = {s for s, _, _ in labels[scenario]}
+    steps_hit = {s for c in chain_rows if c["scenario"] == scenario for s in c["attack_steps_covered"]}
+    evaluation[scenario] = {
+        "alerts_raw": n_raw,
+        "alerts_after_dedup": len(rep),
+        "tp_in_raw": tp_raw,
+        "precision_raw_pct": round(100 * tp_raw / max(n_raw, 1), 2),
+        "tp_after_dedup": tp_rep,
+        "precision_after_dedup_pct": round(100 * tp_rep / max(len(rep), 1), 2),
+        "chains": sum(1 for c in chain_rows if c["scenario"] == scenario),
+        "attack_steps": len(steps_total),
+        "attack_steps_covered_by_chains": len(steps_hit),
+    }
+
+# ---------- write ----------
+with open(os.path.join(OUT_DIR, "alerts_normalized.jsonl"), "w") as f:
+    for a in sorted(alerts, key=lambda x: x["alert_id"]):
+        f.write(json.dumps(a) + "\n")
+with open(os.path.join(OUT_DIR, "alerts_representatives.jsonl"), "w") as f:
+    # working set for the UI: deduped, ranked per scenario (drop dup_of/dup internals)
+    for a in sorted(reps, key=lambda x: (x["scenario"], x["rank"])):
+        r = {k: v for k, v in a.items() if k not in ("dup_of", "sig")}
+        f.write(json.dumps(r) + "\n")
+with open(os.path.join(OUT_DIR, "chains.jsonl"), "w") as f:
+    for c in sorted(chain_rows, key=lambda x: -x["chain_score"]):
+        f.write(json.dumps(c) + "\n")
+with open(os.path.join(OUT_DIR, "evaluation.json"), "w") as f:
+    json.dump(evaluation, f, indent=2)
+# chain-level precision@k (ranked by chain_score; chain = TP if it touches an attack window)
+chain_prec = {}
+for scenario in sorted(by_scen):
+    chs = sorted([c for c in chain_rows if c["scenario"] == scenario],
+                 key=lambda x: -x["chain_score"])
+    row = {}
+    for k in (5, 10, 20):
+        kk = min(k, len(chs))
+        tp = sum(1 for c in chs[:kk] if c["likely_true_positive"])
+        row[f"p@{k}"] = f"{tp}/{kk}"
+    chain_prec[scenario] = row
+print("chain precision@k:", json.dumps(chain_prec, indent=1))
+print(f"alerts: {len(alerts)} ({len(reps)} representatives), chains: {len(chain_rows)}")
+for s, e in evaluation.items():
+    print(f"  {s:16s} raw={e['alerts_raw']:5d} prec={e['precision_raw_pct']:5.2f}% "
+          f"-> dedup={e['alerts_after_dedup']:5d} prec={e['precision_after_dedup_pct']:5.2f}% "
+          f"steps {e['attack_steps_covered_by_chains']}/{e['attack_steps']}")

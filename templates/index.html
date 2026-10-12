@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Charlotte AI — Incident Queue</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <span>Mini Charlotte AI</span>
+      <span class="brand-sub">Track 2 — AIT Alert Data Set</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="queue">Incident Queue</button>
+      <button class="tab-btn" data-tab="metrics">Metrics</button>
+      <button class="tab-btn" data-tab="about">About</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-queue" class="tab-panel active">
+      <div class="queue-layout">
+        <div class="queue-list">
+          <div class="toolbar">
+            <select id="scenario-filter">
+              <option value="">All scenarios</option>
+            </select>
+            <input id="min-score" type="number" placeholder="min chain score" min="0" step="1" />
+            <label class="checkbox"><input type="checkbox" id="show-suppressed" /> show suppressed</label>
+            <label class="checkbox"><input type="checkbox" id="eval-mode" /> eval mode (ground truth)</label>
+            <button id="refresh-btn">Refresh</button>
+            <span id="queue-count" class="muted"></span>
+          </div>
+          <table class="chain-table">
+            <thead>
+              <tr>
+                <th>Score</th>
+                <th>Scenario</th>
+                <th>Host</th>
+                <th>Window</th>
+                <th>Alerts</th>
+                <th>Steps</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody id="chain-rows"></tbody>
+          </table>
+        </div>
+
+        <aside id="detail-panel" class="detail-panel">
+          <p class="muted">Select an incident from the queue to see the correlated alerts and
+            generate an explanation.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="tab-metrics" class="tab-panel">
+      <div id="metrics-content">Loading…</div>
+    </section>
+
+    <section id="tab-about" class="tab-panel">
+      <div class="about">
+        <h2>What this is</h2>
+        <p>A mini "Charlotte AI": it ingests a correlated alert queue built from the AIT Alert
+          Data Set (AMiner IDS alerts across 8 attack scenarios), ranks incidents, explains them
+          in plain English via an LLM, and learns from analyst feedback to suppress repeat false
+          positives.</p>
+        <h2>Pipeline</h2>
+        <p>55,558 raw alerts → 21,251 deduped representatives → 1,395 correlated chains, ranked
+          by <code>chain_score = max_severity × (1 + 0.5·log10(n))</code> so burst incidents
+          outrank lone noisy alerts. Ground-truth labels are used only to compute the metrics on
+          the Metrics tab — never shown next to an individual chain unless "eval mode" is on.</p>
+        <h2>Honest caveats</h2>
+        <ul>
+          <li>Per-alert severity ranking alone has weak precision — benign high-entropy DNS
+            queries score 90 and float to the top. The correlation + feedback-loop suppression is
+            what beats that baseline.</li>
+          <li>A few exfil-like DNS bursts fall outside the labeled attack windows — the LLM
+            explanation and analyst verdict are the arbiter for those, same as a real SOC.</li>
+        </ul>
+        <h2>Explain providers</h2>
+        <p><strong>Private/local</strong> — Ollama running <code>deepseek-r1:8b</code> on this
+          machine, no data leaves the box. <strong>Cloud</strong> — Anthropic API; paste a key
+          into the chatbox in the detail panel, it's used for one request and kept only in this
+          browser tab's session storage.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
