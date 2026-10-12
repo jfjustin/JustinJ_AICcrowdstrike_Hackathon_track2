@@ -4,3 +4,4 @@ anthropic
 openai
 requests
 python-dotenv
+gunicorn
