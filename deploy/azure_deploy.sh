@@ -46,6 +46,16 @@ az webapp config set \
   --startup-file "gunicorn --bind=0.0.0.0 --timeout 600 wsgi:app" \
   --output table
 
+echo "== 4a. force Oryx to actually run 'pip install -r requirements.txt' on zip deploy =="
+# az webapp deploy --type zip does NOT run Oryx build by default — without
+# this, the zip just gets copied as-is and the worker fails to start because
+# flask/gunicorn/pandas etc. were never installed.
+az webapp config appsettings set \
+  --name "$APP_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true \
+  --output table
+
 if [ -n "${INGEST_API_KEY:-}" ]; then
   echo "== 4b. setting INGEST_API_KEY app setting (gates POST /api/ingest) =="
   az webapp config appsettings set \
